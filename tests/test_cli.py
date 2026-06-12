@@ -33,7 +33,7 @@ def test_main_builds_database(tmp_path, index_html, season_html):
     distinct_types = {r[0] for r in conn.execute("SELECT DISTINCT puzzle_type FROM puzzles")}
     conn.close()
 
-    assert count == 9  # all puzzles from the season42 fixture
+    assert count == 20  # all puzzles from the season42 fixture (2 episodes × 10)
     assert "Toss-Up" in distinct_types and "Round" in distinct_types
 
 

@@ -47,6 +47,34 @@ def test_fetch_retries_transient_then_succeeds(monkeypatch):
     assert len(responses.calls) == 2
 
 
+_POW_CHALLENGE_HTML = """
+<html><head><script>
+window.POW_CHALLENGE_DATA={
+    challenge_nonce:'aabbccdd00112233aabbccdd00112233',
+    challenge_hmac:'deadbeef1234',
+    difficulty:'1',
+    difficulty_char:'0',
+    issued_at:'1000000000',
+    cookie_duration:'3600',
+    referrer:'(null)'
+};
+</script></head><body></body></html>
+"""
+
+
+@responses.activate
+def test_fetch_solves_pow_challenge(monkeypatch):
+    """A 202 PoW challenge page should be solved and retried transparently."""
+    monkeypatch.setattr("wheeldb.time.sleep", lambda *_: None)
+    responses.add(responses.GET, URL, body=_POW_CHALLENGE_HTML, status=202)
+    responses.add(responses.GET, URL, body="<html>real</html>", status=200)
+    html = fetch(make_session(), URL, delay=0)
+    assert "real" in html
+    assert len(responses.calls) == 2
+    # The second request must carry the pow_bypass cookie.
+    assert "pow_bypass" in responses.calls[1].request.headers.get("Cookie", "")
+
+
 @responses.activate
 def test_fetch_uses_cache_on_second_call(tmp_path):
     """A cached page should be returned without a second network request."""

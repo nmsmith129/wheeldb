@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
+import hashlib
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -63,6 +65,44 @@ class EgressBlockedError(RuntimeError):
     problem) from ordinary transient failures, so the CLI can print actionable
     guidance instead of burning retries on something that will never succeed.
     """
+
+
+# ---------------------------------------------------------------------------
+# Proof-of-work helpers
+# ---------------------------------------------------------------------------
+def _parse_pow_challenge(html: str) -> Optional[dict]:
+    """Extract PoW parameters from a 202 challenge page, or return None.
+
+    buyavowel.boards.net gates bot traffic behind a SHA-256 PoW that browsers
+    solve with JavaScript. When the scraper hits the challenge page we parse the
+    embedded ``POW_CHALLENGE_DATA`` JS object, solve it in Python, and set the
+    resulting cookie so the real page is returned on retry.
+    """
+    m = re.search(r"window\.POW_CHALLENGE_DATA\s*=\s*\{([^}]+)\}", html)
+    if not m:
+        return None
+    data: dict = {}
+    for kv in re.finditer(r"(\w+)\s*:\s*'([^']*)'", m.group(1)):
+        data[kv.group(1)] = kv.group(2)
+    return data if data else None
+
+
+def _solve_pow(data: dict) -> str:
+    """Compute the SHA-256 PoW solution and return the ``pow_bypass`` cookie value.
+
+    The site's JS computes SHA-256(nonce + issued_at + str(i)) for increasing i
+    until the digest starts with ``difficulty_char`` repeated ``difficulty`` times.
+    The cookie encodes all parameters so the server can verify without re-computing.
+    """
+    nonce = data["challenge_nonce"]
+    issued_at = data["issued_at"]
+    prefix = data["difficulty_char"] * int(data["difficulty"])
+    hmac = data["challenge_hmac"]
+    for i in range(1, 10_000_001):
+        digest = hashlib.sha256(f"{nonce}{issued_at}{i}".encode()).hexdigest()
+        if digest.startswith(prefix):
+            return f"{nonce}|{issued_at}|{i}|{digest}|{hmac}"
+    raise RuntimeError("PoW challenge unsolvable within 10M iterations")
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +155,7 @@ def fetch(
         return cache_file.read_text(encoding="utf-8")
 
     last_error: Optional[Exception] = None
+    pow_solved = False
     # One initial attempt plus one per backoff interval.
     for attempt in range(len(RETRY_BACKOFFS) + 1):
         # Be polite: pause before every network attempt, including retries.
@@ -135,6 +176,17 @@ def fetch(
                     "blocking the User-Agent. Add 'buyavowel.boards.net' to the "
                     "Custom allowed domains and start a fresh session."
                 )
+            # Proof-of-work challenge: solve once per session, then retry.
+            if resp.status_code == 202 and not pow_solved:
+                challenge = _parse_pow_challenge(resp.text)
+                if challenge:
+                    log.info("solving PoW challenge for %s", url)
+                    session.cookies.set(
+                        "pow_bypass", _solve_pow(challenge),
+                        domain="buyavowel.boards.net", path="/"
+                    )
+                    pow_solved = True
+                    continue  # retry immediately; cookie is now set for the session
             if resp.status_code in RETRYABLE_STATUS:
                 last_error = RuntimeError(f"HTTP {resp.status_code} for {url}")
                 log.warning("transient HTTP %s for %s", resp.status_code, url)
@@ -218,15 +270,13 @@ def _clean(text: str) -> str:
 def parse_index(html: str) -> list[tuple[int, str]]:
     """Extract ``(season_number, season_url)`` pairs from the compendium index.
 
-    The index is the entry point that tells the scraper which season pages exist,
-    so the rest of the run can iterate seasons without hard-coding their URLs.
-    Season links are recognised by an explicit ``Season N`` label on the link.
+    The index page links each season as an image button; the season number is
+    encoded in the URL (``/page/compendiumN``) rather than in the link text.
     """
     soup = BeautifulSoup(html, "lxml")
     seasons: dict[int, str] = {}
     for link in soup.find_all("a", href=True):
-        label = _clean(link.get_text())
-        match = re.search(r"Season\s+(\d+)", label, flags=re.IGNORECASE)
+        match = re.search(r"/page/compendium(\d+)$", link["href"])
         if not match:
             continue
         season = int(match.group(1))
@@ -237,125 +287,87 @@ def parse_index(html: str) -> list[tuple[int, str]]:
 
 
 def _absolute_url(href: str) -> str:
-    """Resolve a possibly-relative compendium href to an absolute URL.
+    """Resolve a possibly-relative compendium href to an absolute HTTPS URL.
 
-    Links on the index are often root-relative (``/page/...``); making them
-    absolute lets ``fetch`` request them directly.
+    Links on the index are absolute http:// URLs; we upgrade to https so the
+    scraper uses TLS directly instead of following an extra redirect hop.
+    Root-relative hrefs (``/page/...``) are also handled for fixture/test use.
     """
+    if href.startswith("http://buyavowel.boards.net"):
+        return "https://buyavowel.boards.net" + href[len("http://buyavowel.boards.net"):]
     if href.startswith("http://") or href.startswith("https://"):
         return href
     return "https://buyavowel.boards.net" + (href if href.startswith("/") else "/" + href)
 
 
+# Short round codes used by the compendium: T1-T5 = Toss-Up, R1-R5 = Round,
+# R3* = Prize Puzzle (always Round 3), R1^/R2^ = Crossword, BR = Bonus Round.
+_ROUND_CODE_RE = re.compile(r"^(T(\d+)|R(\d+)(\*|\^)?|BR)$")
+
+
+def _expand_round_code(code: str) -> Optional[tuple[str, str]]:
+    """Map a compendium round code to ``(round_name, puzzle_type)``, or ``None``.
+
+    The compendium uses terse codes (T1, R3*, BR) rather than full labels.
+    Expanding them here keeps the stored data human-readable and consistent
+    with the ``derive_puzzle_type`` semantics used everywhere else.
+    """
+    m = _ROUND_CODE_RE.match(code.strip())
+    if not m:
+        return None
+    if m.group(2):  # Toss-Up: T1, T2, …
+        return f"Toss-Up {m.group(2)}", "Toss-Up"
+    if m.group(3):  # Round variant: R1, R3*, R2^, …
+        n, mod = m.group(3), m.group(4)
+        round_name = f"Round {n}"
+        puzzle_type = {"*": "Prize Puzzle", "^": "Crossword"}.get(mod, "Round")
+        return round_name, puzzle_type
+    # BR
+    return "Bonus Round", "Bonus Round"
+
+
 def parse_season(html: str, season: int, source_url: str) -> list[dict]:
     """Parse one season page into a list of puzzle records.
 
-    This is the core extraction step: it walks the season page's puzzle rows and
-    produces normalised dicts ready for ``upsert_puzzles``. Rows are read from
-    tables, carrying the current episode/air-date context forward across the
-    puzzle rows that belong to it.
-
-    NOTE: the exact column order/markup is finalised against real saved pages
-    (see the plan's "Build order"); the logic below targets the compendium's
-    table layout of [round, category, solution] rows grouped under an episode
-    header that carries the episode number and air date.
+    Each puzzle is its own table row with five columns:
+    ``[PUZZLE, CATEGORY, DATE, EP#, ROUND]``.  The round column holds a short
+    code (T1, R3*, BR, …) that ``_expand_round_code`` translates to a full
+    ``round_name`` and coarse ``puzzle_type``.  Episode and date are per-row,
+    so no header-context tracking is needed.
     """
     soup = BeautifulSoup(html, "lxml")
     puzzles: list[dict] = []
-    current_episode: Optional[str] = None
-    current_air_date: Optional[str] = None
 
     for row in soup.find_all("tr"):
         cells = [_clean(td.get_text()) for td in row.find_all(["td", "th"])]
         cells = [c for c in cells if c != ""]
-        if not cells:
+        if len(cells) != 5:
             continue
 
-        # An episode header row introduces the episode number and air date and
-        # sets the context for the puzzle rows that follow it.
-        episode, air_date = _match_episode_header(cells)
-        if episode is not None:
-            current_episode = episode
-            current_air_date = air_date
+        solution, category, date_raw, ep_raw, round_code = cells
+
+        # Episode column must look like "#NNNN"; guards against legend/header rows.
+        if not re.match(r"^#\d+$", ep_raw):
             continue
 
-        # A puzzle row has a recognisable round label in its first column.
-        round_name = _match_round(cells[0])
-        if round_name is None:
+        expanded = _expand_round_code(round_code)
+        if expanded is None:
             continue
-        # Layout is [round, category, solution]; tolerate a missing category.
-        category = cells[1] if len(cells) >= 3 else None
-        solution = cells[-1]
-        if not solution:
-            continue
+        round_name, puzzle_type = expanded
 
         puzzles.append(
             {
                 "season": season,
-                "episode": current_episode,
-                "air_date": current_air_date,
+                "episode": ep_raw.lstrip("#"),
+                "air_date": normalize_date(date_raw),
                 "round_name": round_name,
-                "puzzle_type": derive_puzzle_type(round_name),
+                "puzzle_type": puzzle_type,
                 "category": category,
                 "solution": solution,
                 "source_url": source_url,
             }
         )
     return puzzles
-
-
-# Recognised round labels, used to tell puzzle rows apart from layout/noise rows.
-_ROUND_PATTERN = re.compile(
-    r"^(?:"
-    r"Toss[- ]?Up(?:\s*#?\d+)?|"
-    r"Triple\s+Toss[- ]?Up(?:\s+[A-Z])?|"
-    r"Round\s*#?\d+|"
-    r"Bonus(?:\s+Round)?|"
-    r"Prize\s+Puzzle|"
-    r"Mystery(?:\s+Round)?(?:\s*#?\d+)?|"
-    r"Express(?:\s+Round)?|"
-    r"Speed[- ]?Up(?:\s+Round)?|"
-    r"Final\s+Spin"
-    r")",
-    flags=re.IGNORECASE,
-)
-
-
-def _match_round(text: str) -> Optional[str]:
-    """Return the normalised round label if ``text`` names a round, else ``None``.
-
-    Used to decide whether a table row is an actual puzzle (and to capture its
-    round name) versus unrelated layout text, keeping noise out of the database.
-    """
-    if _ROUND_PATTERN.match(text):
-        return text
-    return None
-
-
-# Episode headers look like "Episode 1234 - September 19, 2024" (separators vary).
-# The episode token must start with a digit so unrelated text that merely contains
-# a keyword (e.g. a "Show Biz" category) isn't misread as an episode header.
-_EPISODE_PATTERN = re.compile(
-    r"\b(?:Episode|Show|Ep\.?)\s*#?\s*(\d[\w.-]*)"
-    r"(?:\s*[-–—:]\s*(.+))?$",
-    flags=re.IGNORECASE,
-)
-
-
-def _match_episode_header(cells: list[str]) -> tuple[Optional[str], Optional[str]]:
-    """Detect an episode-header row and return ``(episode, air_date)``.
-
-    Episode headers establish which episode (and air date) the following puzzle
-    rows belong to; recognising them is what lets a flat row stream be grouped
-    back into episodes. Returns ``(None, None)`` when the row is not a header.
-    """
-    joined = " ".join(cells)
-    match = _EPISODE_PATTERN.search(joined)
-    if not match:
-        return None, None
-    episode = match.group(1)
-    air_date = normalize_date(match.group(2)) if match.group(2) else None
-    return episode, air_date
 
 
 # ---------------------------------------------------------------------------
