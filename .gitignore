@@ -1,0 +1,16 @@
+# Local SQLite databases produced by the scraper
+*.db
+*.sqlite
+*.sqlite3
+
+# Downloaded page cache
+html_cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+*.egg-info/
