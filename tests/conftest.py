@@ -1,12 +1,17 @@
-"""Shared pytest fixtures.
+"""Shared pytest fixtures and the test-only print option.
 
-Centralises access to the saved sample HTML pages so every test module reads
-them the same way and a single path change updates them all.
+Centralizes access to the saved sample HTML pages and provides an offline
+``Fetcher`` so the whole suite runs without touching the live site (Constitution
+Principle I). Also registers the ``--print-puzzles`` option (Principle V / FR-012)
+whose rendering lives in :mod:`print_helpers`.
 """
 
 from pathlib import Path
 
 import pytest
+
+from wheeldb.errors import RetrievalError
+from print_helpers import print_puzzles
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -14,19 +19,84 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 def _read(name: str) -> str:
     """Read a fixture HTML file by name.
 
-    A tiny helper so tests reference fixtures by short name rather than repeating
-    the directory path.
+    Parameters:
+        name: file name under ``tests/fixtures`` (e.g. ``compendium42.html``).
+    Returns:
+        The file's text decoded as UTF-8.
     """
     return (FIXTURE_DIR / name).read_text(encoding="utf-8")
 
 
-@pytest.fixture
-def index_html() -> str:
-    """The representative compendium index page used by parser/CLI tests."""
-    return _read("index.html")
+class FixtureFetcher:
+    """An offline ``Fetcher`` that serves saved season-page fixtures.
+
+    Stands in for the live HTTP fetcher so parser/lookup tests run without
+    network access.
+    """
+
+    def __init__(self, seasons=(1, 20, 42)):
+        """Create a fetcher backed by the given season fixtures.
+
+        Parameters:
+            seasons: season numbers for which a ``compendium{N}.html`` fixture
+                exists and may be served.
+        """
+        self._seasons = list(seasons)
+
+    def get_season_html(self, season_number: int) -> str:
+        """Return the saved HTML for a season page.
+
+        Parameters:
+            season_number: the season whose fixture to read.
+        Returns:
+            Raw HTML text of the season page fixture.
+        Raises:
+            RetrievalError: no fixture is configured for ``season_number``.
+        """
+        if season_number not in self._seasons:
+            raise RetrievalError(f"no fixture for season {season_number}")
+        return _read(f"compendium{season_number}.html")
+
+    def available_seasons(self):
+        """Return the season numbers this fetcher can serve.
+
+        Returns:
+            The list of seasons with a configured fixture, used by
+            ``extract_episode`` to bound its search offline.
+        """
+        return list(self._seasons)
 
 
 @pytest.fixture
-def season_html() -> str:
-    """The representative single-season page used by parser/CLI tests."""
-    return _read("season42.html")
+def fetcher() -> FixtureFetcher:
+    """A fixture-backed fetcher serving the early/middle/recent era fixtures."""
+    return FixtureFetcher([1, 20, 42])
+
+
+def pytest_addoption(parser):
+    """Register the ``--print-puzzles`` command-line option.
+
+    Parameters:
+        parser: the pytest option parser provided by the plugin hook.
+    """
+    parser.addoption(
+        "--print-puzzles",
+        action="store_true",
+        default=False,
+        help="Print parsed puzzles (including solutions) to the test log.",
+    )
+
+
+@pytest.fixture
+def maybe_print_puzzles(request):
+    """Return a puzzle printer that is active only under ``--print-puzzles``.
+
+    Parameters:
+        request: the pytest request, used to read the ``--print-puzzles`` flag.
+    Returns:
+        ``print_puzzles`` when the flag is set, otherwise a no-op callable. This
+        keeps puzzle solutions behind the test boundary (Principle II / FR-013).
+    """
+    if request.config.getoption("--print-puzzles"):
+        return print_puzzles
+    return lambda *args, **kwargs: None
