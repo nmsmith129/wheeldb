@@ -5,9 +5,11 @@ function, plus the typed errors and the ``Fetcher`` seam for offline use.
 """
 
 from wheeldb.episodes import extract_episode
-from wheeldb.errors import ParseError, RetrievalError, WheelDBError
+from wheeldb.errors import DatabaseError, ParseError, RetrievalError, WheelDBError
 from wheeldb.fetch import Fetcher, HttpFetcher, season_url
+from wheeldb.ingest import IngestSummary, ingest_seasons, parse_season_arg
 from wheeldb.models import Puzzle
+from wheeldb.storage import PuzzleStore
 
 __all__ = [
     "Puzzle",
@@ -18,4 +20,9 @@ __all__ = [
     "WheelDBError",
     "RetrievalError",
     "ParseError",
+    "DatabaseError",
+    "PuzzleStore",
+    "ingest_seasons",
+    "parse_season_arg",
+    "IngestSummary",
 ]

@@ -67,6 +67,58 @@ class FixtureFetcher:
         return list(self._seasons)
 
 
+class RecordingFetcher:
+    """An offline ``Fetcher`` that records requested seasons and can simulate gaps.
+
+    Like :class:`FixtureFetcher` but (a) it remembers every season it was asked
+    for (in ``requested``) so bounded-fetch tests can assert the scraper stayed
+    within the requested range, and (b) it accepts a ``files`` mapping so an
+    arbitrary season number can be aliased to any existing fixture file. A season
+    that is neither ``available`` nor in ``files`` raises ``RetrievalError`` when
+    requested, which lets best-effort skip tests model an unretrievable season.
+    """
+
+    def __init__(self, available=(1, 20, 42), *, files=None):
+        """Create a recording fetcher.
+
+        Parameters:
+            available: season numbers served from their default
+                ``compendium{N}.html`` fixture.
+            files: optional ``{season: fixture_filename}`` mapping that aliases a
+                season number to a specific fixture file (overrides the default
+                name and extends the set of served seasons).
+        """
+        self._available = dict.fromkeys(available)
+        self._files = dict(files or {})
+        self.requested: list[int] = []
+
+    def get_season_html(self, season_number: int) -> str:
+        """Return the saved HTML for a season page, recording the request.
+
+        Parameters:
+            season_number: the season whose fixture to read.
+        Returns:
+            Raw HTML text of the mapped season-page fixture.
+        Raises:
+            RetrievalError: the season is neither served nor aliased (models an
+                unretrievable season page).
+        """
+        self.requested.append(season_number)
+        if season_number in self._files:
+            return _read(self._files[season_number])
+        if season_number in self._available:
+            return _read(f"compendium{season_number}.html")
+        raise RetrievalError(f"no fixture for season {season_number}")
+
+    def available_seasons(self):
+        """Return the season numbers this fetcher can serve.
+
+        Returns:
+            The served seasons (defaults plus any aliased via ``files``).
+        """
+        return list(self._available) + [s for s in self._files if s not in self._available]
+
+
 @pytest.fixture
 def fetcher() -> FixtureFetcher:
     """A fixture-backed fetcher serving the early/middle/recent era fixtures."""

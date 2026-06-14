@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!--
+  Synthetic season fixture for the data-error test (tasks T002/T008/T009).
+  The puzzle table has one well-formed row (round T1) followed by one row whose
+  ROUND code "XX" is not a recognized toss-up / numbered round / bonus round, so
+  Puzzle.puzzle_number raises PuzzleParseError. The leading good row is here so a
+  test can prove the whole season rolls back (zero rows written), not just the
+  bad row. NOT representative of real compendium markup.
+-->
+<html>
+<head><title>Compendium - Bad Round Fixture</title></head>
+<body>
+  <table class="puzzles">
+    <tr><th>PUZZLE</th><th>CATEGORY</th><th>DATE</th><th>EP#</th><th>ROUND</th></tr>
+    <tr><td>"GOOD PUZZLE ROW"</td><td>Phrase</td><td>9/9/24</td><td>#9001</td><td>T1</td></tr>
+    <tr><td>"UNKNOWN ROUND ROW"</td><td>Thing</td><td>9/9/24</td><td>#9001</td><td>XX</td></tr>
+  </table>
+</body>
+</html>
