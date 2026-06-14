@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!--
+  Synthetic fixture for the within-season duplicate-key test (code-review fix #1).
+  Two data rows share the same (episode, round) = (#9001, R3) with different
+  solutions, so they collapse to a single stored row keyed on
+  (season, episode, round). Used to verify the ingest counts reflect rows
+  written, not parsed occurrences. NOT representative of real compendium markup.
+-->
+<html>
+<head><title>Compendium - Duplicate Round Fixture</title></head>
+<body>
+  <table class="puzzles">
+    <tr><th>PUZZLE</th><th>CATEGORY</th><th>DATE</th><th>EP#</th><th>ROUND</th></tr>
+    <tr><td>"FIRST ANSWER"</td><td>Phrase</td><td>9/9/24</td><td>#9001</td><td>R3</td></tr>
+    <tr><td>"SECOND ANSWER"</td><td>Thing</td><td>9/9/24</td><td>#9001</td><td>R3</td></tr>
+  </table>
+</body>
+</html>

@@ -18,5 +18,5 @@ module, which in this repo is `src/wheeldb/`.) Full governance: `.specify/memory
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-episode-puzzle-parser/plan.md
+at specs/002-sqlite-database-creation/plan.md
 <!-- SPECKIT END -->

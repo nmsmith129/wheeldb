@@ -9,7 +9,9 @@ flags. See specs/001-episode-puzzle-parser/data-model.md.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from wheeldb.errors import ParseError, PuzzleParseError
 
+__all__ = ["Puzzle", "PuzzleParseError"]
 
 @dataclass(frozen=True)
 class Puzzle:
@@ -59,3 +61,30 @@ class Puzzle:
         if self.round[:1] == "R":
             return "Round"
         return "Unknown"
+    
+    @property
+    def puzzle_number(self) -> int:
+        """Return the coarse puzzle number derived from the round code.
+
+        Returns:
+            ``1`` for the bonus round (``BR``); otherwise the numeric suffix of a
+            toss-up (``T*``) or numbered round (``R*``).
+        Raises:
+            PuzzleParseError: the round code is not a recognized ``BR``/``T*``/``R*``
+                form, so no puzzle number can be derived (a data error, FR-010).
+        """
+        if self.round == "BR":
+            return 1
+        if self.round[:1] == "T" or self.round[:1] == "R":
+            return int(self.round[1:])
+        raise PuzzleParseError(
+            f"cannot derive puzzle number for unrecognized round code {self.round!r} "
+            f"(season {self.season}, episode {self.episode})"
+        )
+        
+    def puzzle_id(self) -> str:
+        """Return a unique identifier for the puzzle."""
+        try:
+            return f"{self.season}-{self.episode}-{self.round}"
+        except Exception as e:
+            raise ParseError(f"Error generating puzzle ID: {e}")

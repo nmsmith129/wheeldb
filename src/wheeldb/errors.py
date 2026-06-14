@@ -20,3 +20,22 @@ class RetrievalError(WheelDBError):
 
 class ParseError(WheelDBError):
     """A fetched page did not contain a recognizable puzzle table."""
+
+
+class DatabaseError(WheelDBError):
+    """The SQLite puzzle database could not be opened or written.
+
+    Raised by the storage layer for an unopenable path, a schema-creation
+    failure, or any underlying ``sqlite3`` error during a read/write — so callers
+    can distinguish a persistence failure from a retrieval or parse failure.
+    """
+
+
+class PuzzleParseError(WheelDBError):
+    """A puzzle's round code is not recognized, so a derived value cannot be computed.
+
+    Distinct from :class:`ParseError` (which is about the page-level table): this
+    is a per-row data error. It is a direct ``WheelDBError`` subclass — not a
+    ``ParseError`` — so a caller skipping ``ParseError`` does not accidentally
+    swallow it; ingestion treats it as a halting data error (FR-010).
+    """

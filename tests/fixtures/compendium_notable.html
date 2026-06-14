@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!--
+  Synthetic fixture for the "retrieved but no puzzle table" test (code-review
+  fix #2). The page loads but contains no table with the
+  PUZZLE/CATEGORY/DATE/EP#/ROUND header signature, so find_puzzle_table raises
+  ParseError. Used to verify a parse failure is reported distinctly from a
+  retrieval failure. NOT representative of real compendium markup.
+-->
+<html>
+<head><title>Compendium - No Puzzle Table</title></head>
+<body>
+  <table class="menu">
+    <tr><th>Home</th><th>Seasons</th></tr>
+    <tr><td>Index</td><td>1-43</td></tr>
+  </table>
+</body>
+</html>
