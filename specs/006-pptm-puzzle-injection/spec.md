@@ -8,6 +8,13 @@
 
 **Input**: User description: "Puzzles need to be inserted into WheelofFortune6.4.pptm so they can be played by a group of players where nobody is aware of the puzzle beforehand. Without modifying the VBA code involved with WheelofFortune6.4.pptm, make a copy in the \"games\" folder called \"wof[N].pptm\", where [N] is a three digit number as small as possible without overwriting another file, and use Python code to insert puzzles into the file. There should be four normal round puzzles in slots 1-4, three Toss-Up puzzles in rounds 5-7, and a Bonus Round puzzle in slot 8."
 
+## Clarifications
+
+### Session 2026-06-15
+
+- Q: When the source has more puzzles of a type than the slots need, how are the eight puzzles chosen — and from what scope (episode vs season)? → A: Source by **season** (not a single episode). Pick four Round puzzles at random from the season's Round puzzles, three Toss-Up puzzles at random from the season's Toss-Ups, and one Bonus Round puzzle at random from the season's Bonus Rounds.
+- Q: How is the random selection made reproducible for tests and for a host who wants to recreate a game? → A: Random by default; an optional seed input makes the selection deterministic/reproducible.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Generate a ready-to-play game file (Priority: P1)
@@ -97,10 +104,10 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   value, so a deleted `wof001.pptm` is reused before `wof003.pptm`; behavior at
   `wof999.pptm` (no three-digit number available) is a bounded error, not a silent
   overwrite.
-- **Insufficient puzzles**: if the named episode does not yield the eight required
-  puzzles (4 Round / 3 Toss-Up / 1 Bonus) — because the episode is missing or its
-  recorded puzzles do not match that type breakdown — the tool reports a clear error
-  and does not produce a partially filled game.
+- **Insufficient puzzles**: if the named season does not hold at least four Round,
+  three Toss-Up, and one Bonus Round puzzle — because the season is missing or has
+  too few of a type — the tool reports a clear error and does not produce a
+  partially filled game.
 - **Template missing or altered**: if the template presentation is absent, the tool
   reports a clear error rather than producing an empty file.
 - **VBA preservation**: the generated file retains the template's macro/interactive
@@ -129,20 +136,25 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   slot (Round, Toss-Up, or Bonus Round).
 - **FR-007**: Within a single generated game, no puzzle MUST appear in more than one
   slot.
-- **FR-008**: The system MUST source its puzzles from a host-specified season and
-  episode in the project's ingested puzzle store, selecting that episode's four
-  Round puzzles, three Toss-Up puzzles, and one Bonus Round puzzle for the eight
-  slots. If the named season/episode is not present in the store, the system MUST
-  report a clear error and produce no game file.
+- **FR-008**: The system MUST source its puzzles from a host-specified **season**
+  in the project's ingested puzzle store (not a single episode). It MUST select, at
+  random from that season's puzzles, four Round puzzles for slots 1–4, three Toss-Up
+  puzzles for slots 5–7, and one Bonus Round puzzle for slot 8 — eight distinct
+  puzzles drawn independently per type. If the named season is not present in the
+  store, the system MUST report a clear error and produce no game file.
 - **FR-009**: The generation step MUST NOT reveal any puzzle solution in its
   operator-facing output (consistent with the project's no-spoilers rule); it
   reports only the created file and the count/placement of puzzles.
-- **FR-010**: If the named episode cannot supply the required number of puzzles of
-  each type, the system MUST report a clear error and MUST NOT produce a partially
-  populated game file.
+- **FR-010**: If the named season cannot supply the required number of puzzles of
+  each type (at least four Round, three Toss-Up, and one Bonus Round), the system
+  MUST report a clear error and MUST NOT produce a partially populated game file.
 - **FR-011**: If no three-digit file number is available (all `wof000`–`wof999`
   used), the system MUST report a clear error rather than overwrite an existing
   file.
+- **FR-012**: Puzzle selection MUST be random by default. The system MUST accept an
+  optional seed; when a seed is supplied, the selection MUST be deterministic and
+  reproducible (the same season and seed yield the same eight puzzles), so a run can
+  be recreated and the behavior can be tested exactly.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -172,6 +184,9 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   template in 100% of runs (the macro content is intact).
 - **SC-005**: No puzzle solution is exposed during generation, in zero out of all
   generation runs.
+- **SC-006**: Two generations from the same season with the same seed produce the
+  same eight puzzles in the same slots; with no seed (or different seeds), the
+  lineup varies across runs.
 
 ## Assumptions
 
@@ -181,11 +196,12 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   already records.
 - One game file is produced per generation run; producing many games means running
   the tool repeatedly, each yielding the next-numbered file.
-- A standard Wheel of Fortune episode's puzzle lineup matches the eight slots (four
-  Round, three Toss-Up, one Bonus Round); the host names the season and episode and
-  the tool maps that episode's puzzles to the slots in order.
+- The host names a season; the tool fills the eight slots with puzzles drawn at
+  random by type from that season (four Round, three Toss-Up, one Bonus Round), so
+  successive games from the same season generally differ and the lineup does not
+  reproduce any one episode.
 - The puzzle store is the one this project already produces (via ingest); a populated
-  store covering the requested episode is a prerequisite for generating a game.
+  store covering the requested season is a prerequisite for generating a game.
 - The `games` folder lives at the project root (a sibling of the template) unless
   configured otherwise.
 - The generated game is the unit of delivery; editing or curating individual slots
