@@ -6,6 +6,13 @@
 # Downloaded page cache
 html_cache/
 
+# Manually saved compendium pages (fed to `wheeldb ingest --from-dir`).
+# Root-anchored so they never shadow tracked fixtures under tests/fixtures/.
+/pages/
+/compendium*.htm
+/compendium*.html
+/compendium*_files/
+
 # Python
 __pycache__/
 *.py[cod]

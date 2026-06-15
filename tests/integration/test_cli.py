@@ -45,3 +45,21 @@ def test_cli_retrieval_failure_exits_nonzero(capsys):
     print(f"rc={rc}; stderr={captured.err!r}")
     assert rc == 2
     assert "could not retrieve" in captured.err
+
+
+def test_cli_ingest_from_dir_reads_saved_pages(tmp_path, capsys):
+    """`--from-dir` ingests a manually saved compendium page with no network."""
+    db = tmp_path / "out.sqlite"
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    from pathlib import Path
+
+    fixture = Path(__file__).parent.parent / "fixtures" / "compendium42.html"
+    (pages / "compendium42.html").write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    rc = main(["ingest", "42", "--db", str(db), "--from-dir", str(pages)])
+    out = capsys.readouterr().out
+    print(f"rc={rc}; stdout=\n{out}")
+    assert rc == 0
+    assert "season 42" in out
+    assert db.exists()

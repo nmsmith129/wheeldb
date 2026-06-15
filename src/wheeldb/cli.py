@@ -12,9 +12,27 @@ import sys
 
 from wheeldb.episodes import extract_episode
 from wheeldb.errors import DatabaseError, RetrievalError
-from wheeldb.fetch import season_url
+from wheeldb.fetch import FileFetcher, season_url
 from wheeldb.ingest import ingest_seasons, parse_season_arg
 from wheeldb.models import PuzzleParseError
+
+
+def _add_from_dir(subparser) -> None:
+    """Add the shared ``--from-dir`` option to a subcommand parser.
+
+    Parameters:
+        subparser: the ``episode`` or ``ingest`` subparser to extend.
+
+    The flag points at a directory of season pages saved by hand from a browser
+    (the live host gates the compendium behind a JS proof-of-work challenge);
+    when given, the CLI reads those files instead of making any network request.
+    """
+    subparser.add_argument(
+        "--from-dir",
+        metavar="DIR",
+        help="Read season pages from compendium{N}.html files saved in DIR "
+        "(no network request).",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -31,6 +49,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     episode = sub.add_parser("episode", help="Look up puzzles by episode number.")
     episode.add_argument("number", type=int, help="Global episode number, e.g. 8011.")
+    _add_from_dir(episode)
 
     ingest = sub.add_parser(
         "ingest",
@@ -45,6 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="wheeldb.sqlite",
         help="SQLite database file to write (default: wheeldb.sqlite in the CWD).",
     )
+    _add_from_dir(ingest)
     return parser
 
 
@@ -60,6 +80,9 @@ def main(argv=None, *, fetcher=None) -> int:
         retrieval failure.
     """
     args = _build_parser().parse_args(argv)
+
+    if fetcher is None and getattr(args, "from_dir", None):
+        fetcher = FileFetcher(args.from_dir)
 
     if args.command == "ingest":
         return _run_ingest(args, fetcher)
