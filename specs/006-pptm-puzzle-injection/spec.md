@@ -113,14 +113,24 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
 - **VBA preservation**: the generated file retains the template's macro/interactive
   content unchanged so it still runs as a game.
 - **Original untouched**: generating a game never modifies the template
-  presentation itself.
+  presentation itself (the template is read-only per generation run; any one-time
+  preparation of its slots happens outside generation).
+- **Customized template**: if the host has customized the template (e.g. adjusted
+  the wheel, restyled, or changed game settings) without removing or renaming the
+  eight puzzle slots, those customizations are carried into every generated game and
+  puzzle placement is unaffected. If a customization removes a puzzle slot, the tool
+  reports a clear error rather than producing a malformed game.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The system MUST produce a new game file from the template
-  presentation without modifying the template.
+  presentation without modifying the template **during generation** (each
+  generation run treats the template as read-only). Preparing the template once as a
+  setup step — so its eight puzzle slots can be reliably located — is a separate,
+  one-time action distinct from generation and MUST NOT touch the macro/VBA content
+  (see FR-004).
 - **FR-002**: The system MUST write the new game file into the `games` folder,
   creating that folder if it does not exist.
 - **FR-003**: The system MUST name the new file `wof[N].pptm`, where `[N]` is a
@@ -142,25 +152,35 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   puzzles for slots 5–7, and one Bonus Round puzzle for slot 8 — eight distinct
   puzzles drawn independently per type. If the named season is not present in the
   store, the system MUST report a clear error and produce no game file.
-- **FR-009**: The generation step MUST NOT reveal any puzzle solution in its
-  operator-facing output (consistent with the project's no-spoilers rule); it
-  reports only the created file and the count/placement of puzzles.
+- **FR-009**: The generation step MUST NOT reveal any puzzle solution **or
+  category** in its operator-facing output, including error messages (a category
+  can itself hint the answer); it reports only the created file and the
+  count/placement of puzzles. This applies to all operator-facing output (standard
+  output, errors, and logs), consistent with the project's no-spoilers rule.
 - **FR-010**: If the named season cannot supply the required number of puzzles of
   each type (at least four Round, three Toss-Up, and one Bonus Round), the system
   MUST report a clear error and MUST NOT produce a partially populated game file.
-- **FR-011**: If no three-digit file number is available (all `wof000`–`wof999`
+- **FR-011**: If no three-digit file number is available (all `wof001`–`wof999`
   used), the system MUST report a clear error rather than overwrite an existing
   file.
 - **FR-012**: Puzzle selection MUST be random by default. The system MUST accept an
   optional seed; when a seed is supplied, the selection MUST be deterministic and
   reproducible (the same season and seed yield the same eight puzzles), so a run can
   be recreated and the behavior can be tested exactly.
+- **FR-013**: Puzzle placement MUST be robust to template customization: locating the
+  eight slots MUST NOT depend on slide/shape ordering, so host edits elsewhere in the
+  template (and re-saving it) do not misplace puzzles, and such customizations are
+  preserved in the generated game. If a slot can no longer be located (it was removed
+  or renamed), the system MUST report a clear error and MUST NOT produce a malformed
+  game.
 
 ### Key Entities *(include if feature involves data)*
 
 - **Template presentation**: the existing `WheelofFortune6.4.pptm` game shell,
-  including its interactive/macro content and eight empty puzzle slots. Read-only
-  input; never modified.
+  including its interactive/macro content and eight puzzle slots that hold no real
+  puzzle until a game is generated (a one-time setup may place neutral placeholder
+  markers in those slots so they can be located). Treated as read-only input during
+  every generation run; never modified when a game is produced.
 - **Game file**: a generated `games/wof[N].pptm` — a copy of the template with its
   eight slots filled. The deliverable a host opens and plays.
 - **Puzzle**: a single Wheel of Fortune puzzle with a solution, a category, and a
@@ -182,8 +202,8 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   8 as Bonus Round, with eight distinct puzzles.
 - **SC-004**: Generated games open and run with the same interactive behavior as the
   template in 100% of runs (the macro content is intact).
-- **SC-005**: No puzzle solution is exposed during generation, in zero out of all
-  generation runs.
+- **SC-005**: No puzzle solution or category is exposed in operator-facing output
+  during generation (success or error), in zero out of all generation runs.
 - **SC-006**: Two generations from the same season with the same seed produce the
   same eight puzzles in the same slots; with no seed (or different seeds), the
   lineup varies across runs.
