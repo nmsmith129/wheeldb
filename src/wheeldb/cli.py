@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from wheeldb.episodes import extract_episode
 from wheeldb.errors import DatabaseError, RetrievalError
@@ -33,6 +34,19 @@ def _add_from_dir(subparser) -> None:
         help="Read season pages from compendium{N}.html files saved in DIR "
         "(no network request).",
     )
+
+
+def _csv_output_path(db_path: str) -> str:
+    """Derive the CSV output path from the database path argument (FR-002a).
+
+    Parameters:
+        db_path: the ``--db`` path value (e.g. ``wheeldb.sqlite``).
+    Returns:
+        The same path with its final extension replaced by ``.csv`` (e.g.
+        ``wheeldb.sqlite`` -> ``wheeldb.csv``); a path with no recognized
+        extension has ``.csv`` appended (``wheeldb`` -> ``wheeldb.csv``).
+    """
+    return str(Path(db_path).with_suffix(".csv"))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -63,6 +77,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--db",
         default="wheeldb.sqlite",
         help="SQLite database file to write (default: wheeldb.sqlite in the CWD).",
+    )
+    ingest.add_argument(
+        "--format",
+        choices=("sqlite", "csv"),
+        default="sqlite",
+        help="Output format (default: sqlite). With 'csv', the output is written "
+        "to the --db path with its extension swapped to .csv.",
     )
     _add_from_dir(ingest)
     return parser
@@ -109,8 +130,8 @@ def _run_ingest(args, fetcher) -> int:
     """Execute the ``ingest`` subcommand, printing a spoiler-free summary.
 
     Parameters:
-        args: parsed arguments carrying ``seasons`` (the raw season/range string)
-            and ``db`` (the database path).
+        args: parsed arguments carrying ``seasons`` (the raw season/range string),
+            ``db`` (the database path), and ``format`` (``sqlite`` or ``csv``).
         fetcher: optional ``Fetcher`` injected for offline testing.
     Returns:
         Exit code: 0 on a fully clean run; 2 on a bad argument, a skipped season,
@@ -120,11 +141,15 @@ def _run_ingest(args, fetcher) -> int:
         seasons = parse_season_arg(args.seasons)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        print("usage: wheeldb ingest <season|range> [--db PATH]", file=sys.stderr)
+        print("usage: wheeldb ingest <season|range> [--db PATH] [--format {sqlite,csv}]",
+              file=sys.stderr)
         return 2
 
+    out_path = _csv_output_path(args.db) if args.format == "csv" else args.db
     try:
-        summary = ingest_seasons(seasons, db_path=args.db, fetcher=fetcher)
+        summary = ingest_seasons(
+            seasons, db_path=out_path, fetcher=fetcher, store_format=args.format
+        )
     except PuzzleParseError as exc:
         print(f"error: cannot derive puzzle number: {exc}", file=sys.stderr)
         return 2
@@ -132,7 +157,7 @@ def _run_ingest(args, fetcher) -> int:
         print(f"error: database error: {exc}", file=sys.stderr)
         return 2
 
-    _print_ingest_summary(summary, args.db)
+    _print_ingest_summary(summary, out_path)
     return 2 if (summary.skipped or summary.unparsed) else 0
 
 

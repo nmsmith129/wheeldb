@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from wheeldb.csv_storage import CsvPuzzleStore
 from wheeldb.errors import ParseError, RetrievalError
 from wheeldb.fetch import HttpFetcher
 from wheeldb.parser import find_puzzle_table, parse_rows
@@ -84,8 +85,8 @@ def parse_season_arg(text: str) -> list[int]:
     )
 
 
-def ingest_seasons(season_arg, *, db_path, fetcher=None) -> IngestSummary:
-    """Ingest every puzzle of the requested season(s) into the SQLite database.
+def ingest_seasons(season_arg, *, db_path, fetcher=None, store_format="sqlite") -> IngestSummary:
+    """Ingest every puzzle of the requested season(s) into the chosen store.
 
     Reuses the existing fetch + parser layers (FR-001) and confines retrieval to
     exactly the requested seasons (FR-008a). Best-effort per season (Decision 5):
@@ -100,9 +101,15 @@ def ingest_seasons(season_arg, *, db_path, fetcher=None) -> IngestSummary:
         season_arg: a raw argument string (``"40"`` / ``"37-40"``) parsed via
             :func:`parse_season_arg`, or an already-resolved iterable of season
             ints.
-        db_path: filesystem path to the SQLite database (created if absent).
+        db_path: filesystem path to the output file (created if absent). For the
+            SQLite format this is the database path; for CSV it is the ``.csv``
+            file path (derived by the CLI per FR-002a).
         fetcher: a ``Fetcher`` supplying season HTML; defaults to a live
             ``HttpFetcher``. Tests inject a fixture-backed fetcher.
+        store_format: ``"sqlite"`` (default — unchanged behavior, FR-002) selects
+            :class:`~wheeldb.storage.PuzzleStore`; ``"csv"`` selects
+            :class:`~wheeldb.csv_storage.CsvPuzzleStore`. The season loop and all
+            best-effort/counting behavior are identical for either store.
     Returns:
         An :class:`IngestSummary` of committed seasons, skipped seasons, and
         added/updated counts.
@@ -120,7 +127,8 @@ def ingest_seasons(season_arg, *, db_path, fetcher=None) -> IngestSummary:
 
     summary = IngestSummary()
     seen_keys: set[tuple[int, int, str]] = set()
-    with PuzzleStore(db_path) as store:
+    store_factory = CsvPuzzleStore if store_format == "csv" else PuzzleStore
+    with store_factory(db_path) as store:
         for season in seasons:
             try:
                 html = fetcher.get_season_html(season)

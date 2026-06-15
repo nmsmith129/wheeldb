@@ -4,7 +4,9 @@ Verifies the six required attributes, the round_name/puzzle_type derivations,
 flag preservation, and (season, episode, round, solution) uniqueness semantics.
 """
 
-from wheeldb.models import Puzzle
+import pytest
+
+from wheeldb.models import Puzzle, PuzzleParseError, round_from_type_and_number
 
 
 def _puzzle(**overrides):
@@ -87,3 +89,33 @@ def test_uniqueness_key_distinguishes_solution():
     print(f"a == b? {a == b}; set size = {len({a, b})}")
     assert a != b
     assert len({a, b}) == 2
+
+
+def test_round_from_type_and_number_reconstructs_code():
+    """The inverse of puzzle_type/puzzle_number recovers the round code."""
+    cases = [
+        ("Bonus Round", 0, "BR"),
+        ("Toss-Up", 1, "T1"),
+        ("Toss-Up", 5, "T5"),
+        ("Round", 2, "R2"),
+        ("Round", 10, "R10"),
+    ]
+    for ptype, number, expected in cases:
+        result = round_from_type_and_number(ptype, number)
+        print(f"({ptype!r}, {number}) -> {result!r} (expected {expected!r})")
+        assert result == expected
+
+
+def test_round_from_type_and_number_round_trips_with_derivations():
+    """Reconstruction is the exact inverse of the forward derivations."""
+    for code in ("T1", "T5", "R2", "R10", "BR"):
+        p = _puzzle(round=code)
+        recovered = round_from_type_and_number(p.puzzle_type, p.puzzle_number)
+        print(f"{code!r} -> ({p.puzzle_type!r}, {p.puzzle_number}) -> {recovered!r}")
+        assert recovered == code
+
+
+def test_round_from_type_and_number_rejects_unrecognized_pair():
+    """An unrecognized type/number pair raises PuzzleParseError (FR-004 edge)."""
+    with pytest.raises(PuzzleParseError):
+        round_from_type_and_number("Unknown", 3)
