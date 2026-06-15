@@ -17,6 +17,13 @@ puzzle in place, `(season, episode, round)`, is reconstructed from `puzzle_type`
 `puzzle_number` when reading existing rows. Idempotency, added/updated counts, and
 best-effort per-season behavior match the SQLite path exactly.
 
+## Clarifications
+
+### Session 2026-06-15
+
+- Q: How is the CSV output path determined when `--format csv` is selected? → A: Reuse the existing `--db PATH`; write to the same path with its extension replaced by `.csv` (default becomes `wheeldb.csv`), appending `.csv` if the path has no recognized extension.
+- Q: What happens when a pre-existing CSV file's header/columns don't match the expected layout? → A: Require an exact header match; a mismatch (wrong order, missing/extra columns) is a clear halting error that leaves the file untouched.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Ingest puzzles to a CSV file (Priority: P1)
@@ -120,6 +127,10 @@ missing season is reported as skipped, and the summary matches the database path
 - **Pre-existing file from a prior run**: re-running merges against the existing
   file's contents rather than overwriting blindly, so earlier seasons are not lost
   when a later season is ingested to the same file.
+- **Pre-existing file with a mismatched header**: if the existing CSV's header does
+  not exactly match the expected columns (wrong order, missing or extra columns),
+  the run halts with a clear error and leaves the file untouched rather than
+  appending misaligned rows.
 - **Interrupted/failed write within a season**: a data error while writing a
   season leaves the file as it was before that season (the season's partial work
   is not left half-written), consistent with the all-or-nothing per-season
@@ -135,6 +146,10 @@ missing season is reported as skipped, and the summary matches the database path
   puzzle output is written to the SQLite database or to a CSV file.
 - **FR-002**: When no output format is chosen, the system MUST write to the
   SQLite database, preserving the current default behavior unchanged.
+- **FR-002a**: The CSV output path MUST be derived from the existing database path
+  argument: when CSV is selected, the system writes to that same path with its
+  extension replaced by `.csv` (so the default `wheeldb.sqlite` becomes
+  `wheeldb.csv`), appending `.csv` if the provided path has no recognized extension.
 - **FR-003**: The CSV output MUST contain a header row and one data row per
   puzzle, with columns in this exact order: `season`, `episode`, `date`,
   `puzzle_type`, `puzzle_number`, `category`, `solution`, `flags`. The first seven
@@ -168,6 +183,10 @@ missing season is reported as skipped, and the summary matches the database path
   no-spoilers rule.
 - **FR-011**: Selecting an output format that is not supported MUST produce a
   clear error and a non-success exit, not a silent fallback.
+- **FR-012**: When merging into a pre-existing CSV file, the system MUST verify the
+  file's header exactly matches the expected column set and order; a mismatch
+  (wrong order, missing, or extra columns) MUST halt the run with a clear error and
+  leave the file untouched rather than appending misaligned rows.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -202,8 +221,9 @@ missing season is reported as skipped, and the summary matches the database path
 - The CSV output is selected per ingest run via the existing ingest command; the
   episode-lookup command is not required to read from CSV in this feature.
 - The CSV output file is named using the same scheme the SQLite store uses today:
-  the output location is provided the same way the database path is, so a CSV run
-  produces a same-named file with a `.csv` extension in place of `.sqlite`.
+  the output location is taken from the same database path argument, with its
+  extension replaced by `.csv` (e.g. the default `wheeldb.sqlite` → `wheeldb.csv`);
+  a path with no recognized extension has `.csv` appended (see FR-002a).
 - One CSV file holds all ingested puzzles (across seasons), mirroring how one
   SQLite database holds all puzzles; the output location is provided the same way
   the database path is today.
