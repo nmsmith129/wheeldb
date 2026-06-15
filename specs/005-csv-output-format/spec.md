@@ -134,7 +134,7 @@ missing season is reported as skipped, and the summary matches the database path
 - **Interrupted/failed write within a season**: a data error while writing a
   season leaves the file as it was before that season (the season's partial work
   is not left half-written), consistent with the all-or-nothing per-season
-  behavior of the database path.
+  behavior of the database path. This is the concrete illustration of FR-009.
 - **Format selection**: an unrecognized format value is rejected with a clear
   error rather than silently falling back.
 
@@ -150,6 +150,8 @@ missing season is reported as skipped, and the summary matches the database path
   argument: when CSV is selected, the system writes to that same path with its
   extension replaced by `.csv` (so the default `wheeldb.sqlite` becomes
   `wheeldb.csv`), appending `.csv` if the provided path has no recognized extension.
+  A "recognized extension" is the final dotted segment of the path (so
+  `my.data.sqlite` → `my.data.csv`); see research Decision 9.
 - **FR-003**: The CSV output MUST contain a header row and one data row per
   puzzle, with columns in this exact order: `season`, `episode`, `date`,
   `puzzle_type`, `puzzle_number`, `category`, `solution`, `flags`. The first seven
