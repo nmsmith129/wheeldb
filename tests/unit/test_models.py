@@ -56,6 +56,21 @@ def test_round_name_and_type_derivations():
         assert p.puzzle_type == ptype
 
 
+def test_puzzle_number_derivation():
+    """puzzle_number is the numeric suffix; the bonus round (BR) is 0."""
+    cases = [
+        ("T1", 1),
+        ("T5", 5),
+        ("R2", 2),
+        ("R10", 10),
+        ("BR", 0),
+    ]
+    for code, expected in cases:
+        p = _puzzle(round=code)
+        print(f"round {code!r} -> puzzle_number {p.puzzle_number!r}")
+        assert p.puzzle_number == expected
+
+
 def test_flags_preserved_and_excluded_from_equality():
     """Annotation flags are kept but do not affect equality/uniqueness."""
     plain = _puzzle(round="R3")

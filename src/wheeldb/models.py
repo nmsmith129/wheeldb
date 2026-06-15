@@ -67,14 +67,14 @@ class Puzzle:
         """Return the coarse puzzle number derived from the round code.
 
         Returns:
-            ``1`` for the bonus round (``BR``); otherwise the numeric suffix of a
+            ``0`` for the bonus round (``BR``); otherwise the numeric suffix of a
             toss-up (``T*``) or numbered round (``R*``).
         Raises:
             PuzzleParseError: the round code is not a recognized ``BR``/``T*``/``R*``
                 form, so no puzzle number can be derived (a data error, FR-010).
         """
         if self.round == "BR":
-            return 1
+            return 0
         if self.round[:1] == "T" or self.round[:1] == "R":
             return int(self.round[1:])
         raise PuzzleParseError(
