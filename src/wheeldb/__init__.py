@@ -4,6 +4,7 @@ Public surface: the ``Puzzle`` value object and ``extract_episode`` retrieval
 function, plus the typed errors and the ``Fetcher`` seam for offline use.
 """
 
+from wheeldb.csv_storage import CsvPuzzleStore
 from wheeldb.episodes import extract_episode
 from wheeldb.errors import DatabaseError, ParseError, RetrievalError, WheelDBError
 from wheeldb.fetch import Fetcher, HttpFetcher, season_url
@@ -22,6 +23,7 @@ __all__ = [
     "ParseError",
     "DatabaseError",
     "PuzzleStore",
+    "CsvPuzzleStore",
     "ingest_seasons",
     "parse_season_arg",
     "IngestSummary",

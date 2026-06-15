@@ -11,7 +11,39 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from wheeldb.errors import ParseError, PuzzleParseError
 
-__all__ = ["Puzzle", "PuzzleParseError"]
+__all__ = ["Puzzle", "PuzzleParseError", "round_from_type_and_number"]
+
+
+def round_from_type_and_number(puzzle_type: str, puzzle_number: int) -> str:
+    """Reconstruct a round code from its derived puzzle type and number.
+
+    The exact inverse of :attr:`Puzzle.puzzle_type` / :attr:`Puzzle.puzzle_number`,
+    co-located with them so the round <-> type/number mapping has a single source
+    of truth (Constitution Principle IV). Used by the CSV store, whose rows carry
+    ``puzzle_type``/``puzzle_number`` columns but no ``round`` column, to recover
+    the stable identity key ``(season, episode, round)``.
+
+    Parameters:
+        puzzle_type: the coarse type — ``"Bonus Round"``, ``"Toss-Up"``, or
+            ``"Round"``.
+        puzzle_number: the numeric suffix (``0`` for the bonus round).
+    Returns:
+        The round code: ``"BR"`` for the bonus round, ``"T<N>"`` for a toss-up,
+        ``"R<N>"`` for a numbered round.
+    Raises:
+        PuzzleParseError: the type/number pair is not a recognized combination, so
+            no round code can be reconstructed (a data error, FR-004).
+    """
+    if puzzle_type == "Bonus Round":
+        return "BR"
+    if puzzle_type == "Toss-Up":
+        return f"T{puzzle_number}"
+    if puzzle_type == "Round":
+        return f"R{puzzle_number}"
+    raise PuzzleParseError(
+        f"cannot reconstruct round code from puzzle_type {puzzle_type!r} and "
+        f"puzzle_number {puzzle_number!r}"
+    )
 
 @dataclass(frozen=True)
 class Puzzle:

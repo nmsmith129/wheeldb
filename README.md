@@ -57,6 +57,7 @@ per puzzle, carrying all six attributes plus the derived `puzzle_number` and
 wheeldb ingest 40            # one season
 wheeldb ingest 37-40         # an inclusive range
 wheeldb ingest 40 --db my.sqlite   # custom database path
+wheeldb ingest 40 --format csv     # write a CSV file instead of SQLite
 ```
 
 The database defaults to `wheeldb.sqlite` in the current directory and is created
@@ -78,8 +79,15 @@ Behavior:
   season is written all-or-nothing.
 - **Data errors halt** — an unrecognized round code stops the run (that season is
   rolled back) so you can investigate, leaving earlier seasons committed.
+- **CSV output** — `--format csv` writes a CSV file instead of SQLite, with the
+  same idempotency, counts, and best-effort behavior. The output path is the
+  `--db` path with its extension swapped to `.csv` (so the default becomes
+  `wheeldb.csv`). Columns, in order: `season, episode, date, puzzle_type,
+  puzzle_number, category, solution, flags`. Re-ingesting merges in place keyed on
+  `(season, episode, round)`; a pre-existing file whose header does not match
+  halts the run, leaving the file untouched.
 
-The database file holds solutions (that is its purpose); the CLI stays
+The output file holds solutions (that is its purpose); the CLI stays
 spoiler-free. The default `*.sqlite` files are gitignored.
 
 ## Testing
