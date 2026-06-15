@@ -9,6 +9,7 @@ scraping constraint.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import requests
@@ -108,3 +109,44 @@ class HttpFetcher:
                 f"unexpected HTTP {response.status_code} retrieving {url}"
             )
         return response.text
+
+
+class FileFetcher:
+    """Offline ``Fetcher`` that serves season pages saved to disk by hand.
+
+    The live host now gates the compendium behind a JavaScript proof-of-work
+    challenge (it answers a bare request with HTTP 202 and a challenge page, not
+    the puzzle table). Rather than defeat that gate, this fetcher reads a page the
+    user saved from a real browser: it looks for ``compendium{N}.html`` in a
+    directory and returns its contents. No network request is made, so the
+    respectful-scraping delay does not apply.
+    """
+
+    def __init__(self, directory):
+        """Create a fetcher backed by a directory of saved season pages.
+
+        Parameters:
+            directory: path to a folder containing ``compendium{N}.html`` files
+                saved manually from a browser.
+        """
+        self._directory = Path(directory)
+
+    def get_season_html(self, season_number: int) -> str:
+        """Return the saved HTML for a season page.
+
+        Parameters:
+            season_number: the season whose saved page to read.
+        Returns:
+            The text of ``compendium{season_number}.html`` in the directory.
+        Raises:
+            RetrievalError: no saved page exists for ``season_number`` (so the
+                caller skips it, exactly as it would an unreachable network page).
+        """
+        path = self._directory / f"compendium{season_number}.html"
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise RetrievalError(
+                f"no saved page for season {season_number} at {path}; save the "
+                "compendium page from a browser and place it there"
+            ) from exc

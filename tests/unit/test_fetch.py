@@ -9,7 +9,7 @@ import pytest
 
 import wheeldb.fetch as fetch_mod
 from wheeldb.errors import RetrievalError
-from wheeldb.fetch import HttpFetcher, season_url
+from wheeldb.fetch import FileFetcher, HttpFetcher, season_url
 
 
 class _FakeResponse:
@@ -76,3 +76,19 @@ def test_fetch_non_200_raises_retrieval_error(_no_real_sleep):
     session = _FakeSession(_FakeResponse(500, "oops"))
     with pytest.raises(RetrievalError):
         HttpFetcher(session=session, delay=0).get_season_html(42)
+
+
+def test_file_fetcher_reads_saved_season_page(tmp_path):
+    """A manually saved compendium{N}.html is served as the season HTML (no network)."""
+    (tmp_path / "compendium41.html").write_text("<html>season 41</html>", encoding="utf-8")
+    html = FileFetcher(tmp_path).get_season_html(41)
+    print(f"served {len(html)} chars from {tmp_path}")
+    assert html == "<html>season 41</html>"
+
+
+def test_file_fetcher_missing_file_raises_retrieval_error(tmp_path):
+    """A season with no saved page is a retrieval failure (skipped, not a crash)."""
+    with pytest.raises(RetrievalError) as exc:
+        FileFetcher(tmp_path).get_season_html(41)
+    print(f"missing file raised: {exc.value}")
+    assert "41" in str(exc.value)
