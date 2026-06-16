@@ -280,25 +280,31 @@ def test_first_and_last_cells_of_rows_2_3_only_used_over_48():
 
 
 def test_inject_colors_lettered_tiles_white_and_blanks_green(template_pptm, tmp_path):
-    """Lettered tiles read back white (FFFFFF); blanks read back green (189A50).
+    """Non-whitespace tiles read back white (FFFFFF); blanks/spaces green (189A50).
 
-    Injecting a *shorter* puzzle into slot 1 (which ships a baked-in sample puzzle)
-    must also reset the sample's stale white tiles back to green.
+    The inter-word space tile must stay green (not white). Injecting a *shorter*
+    puzzle into slot 1 (which ships a baked-in sample puzzle) must also reset the
+    sample's stale white tiles back to green.
     """
     out = tmp_path / "colored.pptm"
-    p = Puzzle("GO", "Phrase", "2024-01-01", 42, 8000, "R1")  # only tiles 14,15 lettered
+    # "BIG WIN" -> row 2 tiles 14-20 with the space on tile 17; shorter than the
+    # baked-in sample, so trailing sample tiles (21-24, 28-37) must reset to green.
+    p = Puzzle("BIG WIN", "Phrase", "2024-01-01", 42, 8000, "R1")
     inject_puzzles(template_pptm, out, _assignments(slot1=p))
 
     tiles, _ = _readback_slot(out, 1)
     fills = _readback_fills(out, 1)
-    print(f"lettered tiles: {[i + 1 for i, t in enumerate(tiles) if t]}")
-    print(f"tile14 fill={fills[13]} tile16 fill(was sample 'L')={fills[15]}")
+    print(f"placed: {[(i + 1, t) for i, t in enumerate(tiles) if t]}")
+    print(f"space tile 17 fill={fills[16]}  (must be green)")
+
+    assert tiles[16] == " "          # the inter-word space landed on tile 17
+    assert fills[16] == "189A50"     # ...and it stays green, not white
 
     for i, (ch, fill) in enumerate(zip(tiles, fills)):
-        if ch:
+        if ch.strip():               # a non-whitespace character
             assert fill == "FFFFFF", f"tile {i + 1} ({ch!r}) should be white, got {fill}"
-        else:
-            assert fill == "189A50", f"tile {i + 1} (blank) should be green, got {fill}"
+        else:                        # blank tile or an inter-word space
+            assert fill == "189A50", f"tile {i + 1} ({ch!r}) should be green, got {fill}"
 
 
 def test_inject_writes_assigned_text_into_mapped_slots(template_pptm, tmp_path):

@@ -310,9 +310,11 @@ def inject_puzzles(template_path, out_path, slot_assignments) -> None:
             tiles = lay_out_board(puzzle.solution)
             for shape_name, ch in zip(mapping["tiles"], tiles):
                 xml = _set_shape_text(xml, shape_name, ch)
-                # Colour every tile: white where a character lands, green otherwise
-                # (clearing any stale white tiles from the template's sample puzzle).
-                xml = _set_shape_fill(xml, shape_name, TILE_WHITE if ch else TILE_GREEN)
+                # Colour every tile: white only under a non-whitespace character;
+                # blank tiles and inter-word spaces stay green (also clearing any
+                # stale white tiles from the template's sample puzzle).
+                fill = TILE_WHITE if ch.strip() else TILE_GREEN
+                xml = _set_shape_fill(xml, shape_name, fill)
             xml = _set_shape_text(xml, mapping["category"], puzzle.category)
         replacements[slide] = xml.encode("utf-8")
 
