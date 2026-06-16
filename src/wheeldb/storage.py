@@ -144,6 +144,49 @@ class PuzzleStore:
             raise DatabaseError(f"failed writing puzzle {key}: {exc}") from exc
         return "updated" if existed else "added"
 
+    def puzzles_for_season(self, season: int) -> list[Puzzle]:
+        """Return one season's stored puzzles as ``Puzzle`` objects.
+
+        Reuses the same column set the store persists, reconstructing each
+        ``Puzzle`` from its row so callers (e.g. game generation) can group by the
+        model's derived ``puzzle_type`` without a parallel data path (Principle IV).
+        The ``round`` column is read directly, so the derived type/number come from
+        the model rather than the stored copies.
+
+        Parameters:
+            season: the season number to read puzzles for.
+        Returns:
+            A list of ``Puzzle`` objects for ``season`` (empty if the season is
+            absent), in the database's natural row order.
+        Raises:
+            DatabaseError: an underlying SQLite error occurred during the read.
+        """
+        try:
+            rows = self._con.execute(
+                "SELECT solution, category, date, season, episode, round, flags "
+                "FROM puzzles WHERE season = ?",
+                (season,),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise DatabaseError(
+                f"failed reading puzzles for season {season}: {exc}"
+            ) from exc
+        puzzles = []
+        for solution, category, date, season_no, episode, round_code, flags in rows:
+            flag_pairs = tuple(tuple(pair) for pair in json.loads(flags))
+            puzzles.append(
+                Puzzle(
+                    solution=solution,
+                    category=category,
+                    date=date,
+                    season=season_no,
+                    episode=episode,
+                    round=round_code,
+                    flags=flag_pairs,
+                )
+            )
+        return puzzles
+
     def count(self) -> int:
         """Return the total number of stored puzzle rows.
 

@@ -12,10 +12,12 @@ import sys
 from pathlib import Path
 
 from wheeldb.episodes import extract_episode
-from wheeldb.errors import DatabaseError, RetrievalError
+from wheeldb.errors import DatabaseError, GameError, RetrievalError
 from wheeldb.fetch import FileFetcher, season_url
+from wheeldb.gamegen import generate_game
 from wheeldb.ingest import ingest_seasons, parse_season_arg
 from wheeldb.models import PuzzleParseError
+from wheeldb.storage import PuzzleStore
 
 
 def _add_from_dir(subparser) -> None:
@@ -86,6 +88,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "to the --db path with its extension swapped to .csv.",
     )
     _add_from_dir(ingest)
+
+    game = sub.add_parser(
+        "game",
+        help="Generate a ready-to-play game (games/wof[N].pptm) from a season.",
+    )
+    game.add_argument("season", type=int, help="Season to draw puzzles from.")
+    game.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional integer seed for reproducible puzzle selection.",
+    )
+    game.add_argument(
+        "--db",
+        default="wheeldb.sqlite",
+        help="SQLite store to read (default: wheeldb.sqlite in the CWD).",
+    )
+    game.add_argument(
+        "--games-dir",
+        default="games",
+        help="Output directory for the generated game (default: games; created if absent).",
+    )
     return parser
 
 
@@ -107,6 +131,9 @@ def main(argv=None, *, fetcher=None) -> int:
 
     if args.command == "ingest":
         return _run_ingest(args, fetcher)
+
+    if args.command == "game":
+        return _run_game(args)
 
     try:
         puzzles = extract_episode(args.number, fetcher=fetcher)
@@ -159,6 +186,37 @@ def _run_ingest(args, fetcher) -> int:
 
     _print_ingest_summary(summary, out_path)
     return 2 if (summary.skipped or summary.unparsed) else 0
+
+
+def _run_game(args) -> int:
+    """Execute the ``game`` subcommand, printing a spoiler-free summary.
+
+    Generates ``<games-dir>/wof[N].pptm`` from the named season and reports only the
+    created file and the fixed slot counts — never a solution or category (FR-009,
+    Decision 6/7). Any generation failure (template missing, season absent,
+    insufficient puzzles of a type, no number available, slot anchor missing) maps to
+    a clear stderr message and exit 2; each failure mode is distinguishable (FR-014).
+
+    Parameters:
+        args: parsed arguments carrying ``season``, ``seed``, ``db``, ``games_dir``.
+    Returns:
+        Exit code: 0 on a created game file; 2 on any ``GameError`` or store error.
+    """
+    try:
+        with PuzzleStore(args.db) as store:
+            out_path = generate_game(
+                args.season,
+                store=store,
+                games_dir=args.games_dir,
+                seed=args.seed,
+            )
+    except (GameError, DatabaseError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Created {out_path} from season {args.season}")
+    print("  Puzzles: 4 Round, 3 Toss-Up, 1 Bonus Round (8 total)")
+    return 0
 
 
 def _print_ingest_summary(summary, db_path) -> None:

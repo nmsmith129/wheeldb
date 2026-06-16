@@ -110,6 +110,15 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   partially filled game.
 - **Template missing or altered**: if the template presentation is absent, the tool
   reports a clear error rather than producing an empty file.
+- **Concurrent generation**: two simultaneous runs racing for the same smallest
+  available number are out of scope for this feature (the tool assumes a single
+  host running one generation at a time); a future feature may add file locking or
+  retry-on-collision if concurrent use becomes a real need.
+- **Selection always satisfiable once the threshold is met**: because the four
+  Round, three Toss-Up, and one Bonus Round puzzles are drawn independently from
+  disjoint per-type pools (FR-008), meeting the FR-010 minimums (≥4/≥3/≥1) for a
+  season is always sufficient to produce eight distinct puzzles (FR-007) — a season
+  at exactly the minimum is not a special case.
 - **VBA preservation**: the generated file retains the template's macro/interactive
   content unchanged so it still runs as a game.
 - **Original untouched**: generating a game never modifies the template
@@ -173,6 +182,22 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
   preserved in the generated game. If a slot can no longer be located (it was removed
   or renamed), the system MUST report a clear error and MUST NOT produce a malformed
   game.
+- **FR-014**: Every distinct failure mode (season not present, insufficient puzzles
+  of a type, no three-digit number available, template missing, a slot that cannot be
+  located) MUST be distinguishable to the operator — each names the specific
+  condition (e.g. season, type and count, or numbering exhaustion) rather than a
+  single generic error — while still honoring FR-009 (no solution/category text).
+- **FR-015**: Validation order is fixed and MUST short-circuit on the first failure,
+  without writing any file: (1) template present and readable, (2) named season
+  present in the store, (3) season supplies at least four Round, three Toss-Up, and
+  one Bonus Round puzzles, (4) an unused three-digit number exists in `games/`. A
+  supplied seed only affects which puzzles are chosen in step 3 once it is known to
+  succeed — it MUST NOT change this order or mask an earlier failure (resolves
+  seed-vs-shortfall precedence).
+- **FR-016**: Every failure mode in FR-014 MUST leave `games/` exactly as it was
+  before the run — no partial, empty, or malformed file at any candidate path
+  (all-or-nothing applies uniformly, not only to the insufficient-puzzles case in
+  FR-010).
 
 ### Key Entities *(include if feature involves data)*
 
@@ -207,6 +232,10 @@ puzzles, slots 5–7 hold Toss-Up puzzles, and slot 8 holds a Bonus Round puzzle
 - **SC-006**: Two generations from the same season with the same seed produce the
   same eight puzzles in the same slots; with no seed (or different seeds), the
   lineup varies across runs.
+- **SC-007**: Each of the five failure modes (template missing, season absent,
+  insufficient puzzles of a type, numbering exhausted, slot unlocatable) produces a
+  distinct, identifiable error message and leaves `games/` unchanged, in 100% of
+  triggered cases.
 
 ## Assumptions
 

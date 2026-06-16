@@ -6,6 +6,7 @@ Principle I). Also registers the ``--print-puzzles`` option (Principle V / FR-01
 whose rendering lives in :mod:`print_helpers`.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,9 @@ from wheeldb.errors import RetrievalError
 from print_helpers import print_puzzles
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+
+#: The macro-enabled template at the repo root, treated read-only by tests.
+TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "WheelofFortune6.4.pptm"
 
 
 def _read(name: str) -> str:
@@ -123,6 +127,27 @@ class RecordingFetcher:
 def fetcher() -> FixtureFetcher:
     """A fixture-backed fetcher serving the early/middle/recent era fixtures."""
     return FixtureFetcher([1, 20, 42])
+
+
+@pytest.fixture
+def template_pptm(tmp_path) -> Path:
+    """Return a throwaway copy of the real ``WheelofFortune6.4.pptm`` template.
+
+    Copies the repo's macro-enabled template into ``tmp_path`` so injection tests
+    operate on a disposable source package offline (Constitution Principle I); the
+    real template at the repo root is never written. Skips the test if the template
+    is absent (it is a large binary not always present in a checkout).
+
+    Parameters:
+        tmp_path: pytest's per-test temporary directory.
+    Returns:
+        Path to the copied template inside ``tmp_path``.
+    """
+    if not TEMPLATE_PATH.exists():
+        pytest.skip(f"template not found at {TEMPLATE_PATH}")
+    dest = tmp_path / TEMPLATE_PATH.name
+    shutil.copy2(TEMPLATE_PATH, dest)
+    return dest
 
 
 def pytest_addoption(parser):

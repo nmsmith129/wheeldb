@@ -90,6 +90,47 @@ Behavior:
 The output file holds solutions (that is its purpose); the CLI stays
 spoiler-free. The default `*.sqlite` files are gitignored.
 
+## Generating a playable game
+
+`wheeldb game` builds a ready-to-play PowerPoint game from the
+`WheelofFortune6.4.pptm` template. It selects eight puzzles from an ingested
+season — **four Round, three Toss-Up, one Bonus Round**, chosen at random per type —
+fills the template's eight puzzle slots, and writes the result to `games/`:
+
+```bash
+wheeldb game 42                       # next games/wof[N].pptm from season 42
+wheeldb game 42 --seed 7              # reproducible selection (same seed -> same lineup)
+wheeldb game 42 --db my.sqlite        # read a specific store (default: wheeldb.sqlite)
+wheeldb game 42 --games-dir out       # write into a different directory (created if absent)
+```
+
+Output is **`games/wof[N].pptm`**, where `N` is the smallest unused three-digit
+number in `001`–`999` (an empty `games/` yields `wof001.pptm`; a deleted middle
+number is reused before later ones). Existing files are never overwritten. The
+command reports only the created file and the slot counts — never a solution or
+category:
+
+```text
+Created games/wof001.pptm from season 42
+  Puzzles: 4 Round, 3 Toss-Up, 1 Bonus Round (8 total)
+```
+
+Behavior:
+
+- **Template & macros preserved** — only the slide parts carrying puzzle text are
+  rewritten; `ppt/vbaProject.bin` and every other part are copied through
+  byte-for-byte, so the game's macros still run and the original template is left
+  unchanged. (The host must enable macros to play the generated file.)
+- **Spoiler-free** — neither the success summary nor any error message reveals a
+  solution or category. The generated file necessarily contains solutions (it is the
+  product); the operator output does not.
+- **All-or-nothing errors (exit 2)** — validation runs template present → season
+  present → per-type counts → number available, stopping at the first failure with
+  **no file written**. A season short on a type reports only the type and counts
+  (e.g. `season 42 has 2 Toss-Up puzzles; need 3`).
+
+Generated games live under `games/`, which is gitignored.
+
 ## Testing
 
 The suite runs fully offline against saved HTML fixtures:

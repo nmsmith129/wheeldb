@@ -51,3 +51,11 @@ Created games/wof001.pptm from season 41
 - Insufficient type: `error: season 41 has 2 Toss-Up puzzles; need 3` (counts only).
 - All numbers used: `error: no available wof[N].pptm name in <games-dir> (001-999 used)`.
 - Template missing: `error: template WheelofFortune6.4.pptm not found`.
+- Slot unlocatable: `error: puzzle slot <n> anchor not found in template` (FR-013).
+
+Each message above is distinguishable by condition (FR-014) and validation runs in
+a fixed order — template, then season presence, then per-type counts, then number
+availability (FR-015) — stopping at the first failure with no file written (FR-016).
+A `--seed` only affects which puzzles are chosen once selection is reached; it never
+changes this order. Concurrent invocations racing for the same number are out of
+scope (Edge Cases).

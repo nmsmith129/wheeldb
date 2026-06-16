@@ -182,3 +182,71 @@ def test_upsert_is_idempotent_and_reports_added_then_updated(tmp_path):
     assert second == "updated"
     assert count == 1
     assert stored_category == "Phrase"  # updated in place
+
+
+# --- 006: puzzles_for_season read query (T003) --------------------------------
+
+def _ingest(store, *puzzles):
+    """Upsert several puzzles into a store inside one transaction.
+
+    Parameters:
+        store: an open ``PuzzleStore``.
+        puzzles: the ``Puzzle`` objects to write.
+    """
+    with store.transaction():
+        for puzzle in puzzles:
+            store.upsert(puzzle)
+
+
+def test_puzzles_for_season_returns_rows_as_puzzles(tmp_path):
+    """The season's rows come back as Puzzle objects with correct attrs and derived type."""
+    db_path = tmp_path / "puzzles.sqlite"
+    with PuzzleStore(db_path) as store:
+        _ingest(
+            store,
+            _sample_puzzle(season=42, episode=8011, round="R1", solution="ALPHA"),
+            _sample_puzzle(season=42, episode=8011, round="T2", solution="BETA"),
+            _sample_puzzle(season=42, episode=8011, round="BR", solution="GAMMA"),
+        )
+        result = store.puzzles_for_season(42)
+
+    by_round = {p.round: p for p in result}
+    print(f"returned {len(result)} puzzles for season 42")
+    for p in result:
+        print(f"  {p.round} -> type={p.puzzle_type} solution={p.solution!r}")
+
+    assert all(isinstance(p, Puzzle) for p in result)
+    assert len(result) == 3
+    assert by_round["R1"].solution == "ALPHA"
+    assert by_round["R1"].puzzle_type == "Round"
+    assert by_round["T2"].puzzle_type == "Toss-Up"
+    assert by_round["BR"].puzzle_type == "Bonus Round"
+    # source attributes round-trip
+    assert by_round["R1"].category == "Show Biz"
+    assert by_round["R1"].date == "2024-09-09"
+    assert by_round["R1"].episode == 8011
+
+
+def test_puzzles_for_season_absent_season_returns_empty(tmp_path):
+    """An absent season yields an empty list, not an error."""
+    db_path = tmp_path / "puzzles.sqlite"
+    with PuzzleStore(db_path) as store:
+        _ingest(store, _sample_puzzle(season=42, round="R1"))
+        result = store.puzzles_for_season(99)
+    print(f"puzzles_for_season(99) -> {result!r}")
+    assert result == []
+
+
+def test_puzzles_for_season_scoped_to_one_season(tmp_path):
+    """Only the requested season's puzzles are returned (other seasons excluded)."""
+    db_path = tmp_path / "puzzles.sqlite"
+    with PuzzleStore(db_path) as store:
+        _ingest(
+            store,
+            _sample_puzzle(season=42, episode=8011, round="R1", solution="KEEP"),
+            _sample_puzzle(season=41, episode=7900, round="R1", solution="DROP"),
+        )
+        result = store.puzzles_for_season(42)
+    solutions = sorted(p.solution for p in result)
+    print(f"season 42 solutions: {solutions}")
+    assert solutions == ["KEEP"]
