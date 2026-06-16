@@ -155,6 +155,42 @@ def _readback_slot(out_path, slot: int):
     return tiles, category
 
 
+def _shape_fill(xml: str, shape_name: str) -> str:
+    """Return the shape-fill hex (first ``a:srgbClr`` value) of one named shape.
+
+    The tile's shape fill is the first ``<a:solidFill><a:srgbClr val="…"/>`` in its
+    ``<p:sp>`` (before the ``<a:ln>`` line colour), so the first ``srgbClr`` match is
+    the tile colour: ``FFFFFF`` (white, lettered) or ``189A50`` (green, blank).
+
+    Parameters:
+        xml: decoded slide XML.
+        shape_name: the ``p:cNvPr`` name to locate.
+    Returns:
+        The upper-cased 6-hex fill value, or ``None`` if the shape/fill is absent.
+    """
+    for sp in re.findall(r"<p:sp>.*?</p:sp>", xml, re.S):
+        m = re.search(r'name="([^"]*)"', sp)
+        if m and m.group(1) == shape_name:
+            vals = re.findall(r'<a:srgbClr val="([0-9A-Fa-f]{6})"', sp)
+            return vals[0].upper() if vals else None
+    return None
+
+
+def _readback_fills(out_path, slot: int):
+    """Read back the 52 tile shape-fill hex values for a slot (one per tile).
+
+    Parameters:
+        out_path: path to the generated ``.pptm``.
+        slot: game slot index (1..8).
+    Returns:
+        A list of 52 upper-cased hex strings in tile order 1..52.
+    """
+    mapping = SLOT_MAPPING[slot]
+    with zipfile.ZipFile(out_path) as zf:
+        xml = zf.read(mapping["slide"]).decode("utf-8")
+    return [_shape_fill(xml, name) for name in mapping["tiles"]]
+
+
 def _assignments(**by_slot):
     """Build a slot->Puzzle assignment dict for the given slots.
 
@@ -193,6 +229,82 @@ def test_board_layout_matches_the_spike_example():
     # The unused first cells of rows 2 and 3 stay blank.
     assert tiles[12] == ""   # tile 13
     assert tiles[26] == ""   # tile 27
+
+
+def test_start_row_depends_on_length_not_line_count():
+    """Row 2 starts puzzles of length 1-24; row 1 starts puzzles of length 25+.
+
+    Length is the sum of the stripped wrapped-row lengths. A short puzzle begins on
+    row 2 (tiles 13-26); a longer one begins on row 1 (tiles 1-12).
+    """
+    # Three short words wrap to 3 lines but sum to length 21 (<= 24); the length rule
+    # puts them on row 2 (rows 2-4), unlike a line-count rule that would start on row 1.
+    short = lay_out_board("ABCDEFG HIJKLMN OPQRSTU")  # length 21 -> row 2
+    short_first = next(i for i, ch in enumerate(short) if ch)
+    print(f"short first tile (0-based): {short_first}")
+    assert all(ch == "" for ch in short[0:12])         # row 1 empty
+    assert 12 <= short_first <= 25                      # first letter on row 2
+
+    long = lay_out_board("WHEEL OF FORTUNE BONUS ROUND PUZZLE")  # length 32 -> row 1
+    long_first = next(i for i, ch in enumerate(long) if ch)
+    print(f"long first tile (0-based): {long_first}")
+    assert 0 <= long_first <= 11                        # first letter on row 1
+
+
+def test_all_rows_are_left_aligned():
+    """Every row is left-aligned to its leftmost usable tile (no centering).
+
+    For a 4-line puzzle, row 1 begins at tile 1 and row 4 begins at tile 41.
+    """
+    tiles = lay_out_board("WHEEL OF FORTUNE BONUS ROUND PUZZLE")
+    print(f"row1 head={tiles[0:8]!r} row4 head={tiles[40:46]!r}")
+    assert tiles[0] == "W"     # row 1, tile 1 (left edge), not centered
+    assert tiles[40] == "P"    # row 4, tile 41 (left edge), not centered
+
+
+def test_first_and_last_cells_of_rows_2_3_only_used_over_48():
+    """Rows 2/3 use their first/last cell only when the puzzle length exceeds 48."""
+    # length 49 -> expanded: rows 2/3 use their first cell (tiles 13 and 27).
+    expanded = lay_out_board("BIG MONEY ON THE WHEEL OF FORTUNE COMES AROUND TODAY")
+    print(f"tile13={expanded[12]!r} tile27={expanded[26]!r}")
+    assert expanded[12] != ""   # tile 13 (row 2 first cell) is used
+    assert expanded[26] != ""   # tile 27 (row 3 first cell) is used
+
+    # length 48 -> not expanded: the first/last cells of rows 2/3 stay blank.
+    inset = lay_out_board("ABCDEFGHIJKL MNOPQRSTUVWX YZABCDEFGHIJ KLMNOPQRSTUV")
+    print(f"inset corners: {[inset[i] for i in (12, 25, 26, 39)]!r}")
+    assert inset[12] == ""      # tile 13  (row 2 first cell)
+    assert inset[25] == ""      # tile 26  (row 2 last cell)
+    assert inset[26] == ""      # tile 27  (row 3 first cell)
+    assert inset[39] == ""      # tile 40  (row 3 last cell)
+
+
+def test_inject_colors_lettered_tiles_white_and_blanks_green(template_pptm, tmp_path):
+    """Non-whitespace tiles read back white (FFFFFF); blanks/spaces green (189A50).
+
+    The inter-word space tile must stay green (not white). Injecting a *shorter*
+    puzzle into slot 1 (which ships a baked-in sample puzzle) must also reset the
+    sample's stale white tiles back to green.
+    """
+    out = tmp_path / "colored.pptm"
+    # "BIG WIN" -> row 2 tiles 14-20 with the space on tile 17; shorter than the
+    # baked-in sample, so trailing sample tiles (21-24, 28-37) must reset to green.
+    p = Puzzle("BIG WIN", "Phrase", "2024-01-01", 42, 8000, "R1")
+    inject_puzzles(template_pptm, out, _assignments(slot1=p))
+
+    tiles, _ = _readback_slot(out, 1)
+    fills = _readback_fills(out, 1)
+    print(f"placed: {[(i + 1, t) for i, t in enumerate(tiles) if t]}")
+    print(f"space tile 17 fill={fills[16]}  (must be green)")
+
+    assert tiles[16] == " "          # the inter-word space landed on tile 17
+    assert fills[16] == "189A50"     # ...and it stays green, not white
+
+    for i, (ch, fill) in enumerate(zip(tiles, fills)):
+        if ch.strip():               # a non-whitespace character
+            assert fill == "FFFFFF", f"tile {i + 1} ({ch!r}) should be white, got {fill}"
+        else:                        # blank tile or an inter-word space
+            assert fill == "189A50", f"tile {i + 1} ({ch!r}) should be green, got {fill}"
 
 
 def test_inject_writes_assigned_text_into_mapped_slots(template_pptm, tmp_path):
