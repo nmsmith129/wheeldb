@@ -26,9 +26,17 @@ from wheeldb.errors import GameError
 #: as captured by the T001 spike (research.md).
 BOARD_ROWS = (12, 14, 14, 12)
 
-#: Rows whose first cell is intentionally left blank when placing text (rows are
-#: 1-indexed). The spike showed solutions starting at the *second* cell of rows 2/3.
-ROWS_SKIP_FIRST_CELL = {2, 3}
+#: Tile shape-fill colours (6-hex ``srgbClr`` values, matching the VBA): a lettered
+#: tile turns white; a blank tile is the board green ``RGB(24, 154, 80)``.
+TILE_WHITE = "FFFFFF"
+TILE_GREEN = "189A50"
+
+#: The inset usable width every row is held to until the puzzle outgrows the board:
+#: rows 2 and 3 (14 cells) give up BOTH their first and last cell, so all four rows
+#: are effectively 12 wide (4 x 12 = 48 tiles). Past 48 the layout "expands" and
+#: rows 2/3 use their full 14 cells (52 tiles).
+_INSET_WIDTH = 12
+_INSET_CAPACITY = _INSET_WIDTH * len(BOARD_ROWS)
 
 
 def _row_tile_ranges():
@@ -45,14 +53,54 @@ def _row_tile_ranges():
     return ranges
 
 
+def _wrap(words: list[str], widths: list[int]) -> list[str] | None:
+    """Greedily pack ``words`` into rows of the given usable ``widths``.
+
+    A word is never split and a single blank tile separates words within a row.
+
+    Parameters:
+        words: the puzzle words, in order.
+        widths: usable width of each available row, in board order.
+    Returns:
+        The packed line strings (at most ``len(widths)``), or ``None`` if a word is
+        wider than its row or words remain after every row is filled (doesn't fit).
+    """
+    lines: list[str] = []
+    i = 0
+    for width in widths:
+        if i >= len(words):
+            break
+        line = ""
+        while i < len(words):
+            candidate = words[i] if not line else f"{line} {words[i]}"
+            if len(candidate) <= width:
+                line = candidate
+                i += 1
+            else:
+                break
+        if not line:           # the next word is wider than this row
+            return None
+        lines.append(line)
+    if i < len(words):
+        return None            # leftover words: doesn't fit the board
+    return lines
+
+
 def lay_out_board(solution: str) -> list[str]:
     """Lay a solution string onto the 52-tile Wheel of Fortune board.
 
-    Reproduces the template's board centering (research.md / T001 spike): words are
-    packed onto rows without splitting a word, a single blank tile separates words,
-    and placement prefers the vertical middle by starting on **row 2**. Rows 2 and 3
-    leave their first cell blank (text starts at the second column), matching the
-    captured ``HELLO WORLD`` / ``LET'S A GO`` example. Rows 1 and 4 center their line.
+    Words are packed onto rows without splitting a word (a single blank tile separates
+    words) and every row is **left-aligned** to its leftmost usable tile. Placement
+    depends on the puzzle's length — the sum of the stripped wrapped-row lengths:
+
+    * **Inset layout (length <= 48).** All four rows are 12 wide: rows 2 and 3 keep
+      *both* their first and last cell blank. The puzzle starts on **row 2** when the
+      length is 1-24 and on **row 1** when it is 25-48.
+    * **Expanded layout (length > 48).** Rows 2 and 3 use their full 14 cells (so the
+      first/last cells of those rows are used) and the puzzle starts on **row 1**.
+
+    A consequence of the inset rule: a single word wider than 12 tiles can only be
+    placed when the puzzle is long enough (> 48) to expand; otherwise it does not fit.
 
     Parameters:
         solution: the puzzle solution (e.g. ``"HELLO WORLD LET'S A GO"``); case is
@@ -61,64 +109,54 @@ def lay_out_board(solution: str) -> list[str]:
         A list of exactly 52 strings, one per tile (each a single character or the
         empty string for a blank tile), in tile order 1..52.
     Raises:
-        GameError: the solution cannot fit the board (too many lines or a single
-            word longer than the widest usable row).
+        GameError: the solution cannot fit the board (needs more than four rows, or a
+            word is wider than the usable row width for the puzzle's length).
     """
     ranges = _row_tile_ranges()
     words = solution.split()
-    # Usable width per row (rows 2/3 lose their first cell).
-    usable = [cols - (1 if (i + 1) in ROWS_SKIP_FIRST_CELL else 0)
-              for i, (_s, cols) in enumerate(ranges)]
-    widest = max(usable)
-    for w in words:
-        if len(w) > widest:
-            raise GameError(
-                f"puzzle does not fit the board: a word is {len(w)} tiles wide "
-                f"(max {widest})"
-            )
-
-    # Greedily pack words into lines (a space between words costs one tile).
-    lines: list[str] = []
-    current = ""
-    for word in words:
-        candidate = word if not current else f"{current} {word}"
-        if len(candidate) <= widest:
-            current = candidate
-        else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-
-    # Choose which board rows the lines occupy, preferring to start on row 2 so a
-    # short puzzle sits in the vertical middle.
-    n = len(lines)
-    if n > len(ranges):
-        raise GameError(
-            f"puzzle does not fit the board: needs {n} lines, board has {len(ranges)}"
-        )
-    if n == 1:
-        row_order = [1]            # single line -> row 2 (0-based index 1)
-    elif n == 2:
-        row_order = [1, 2]          # two lines -> rows 2 and 3
-    elif n == 3:
-        row_order = [0, 1, 2]       # three lines -> rows 1-3 (leave row 4 free)
-    else:
-        row_order = list(range(n))  # four lines -> all rows
-
     tiles = [""] * sum(BOARD_ROWS)
-    for line, row_idx in zip(lines, row_order):
-        start, cols = ranges[row_idx]
-        skip = 1 if (row_idx + 1) in ROWS_SKIP_FIRST_CELL else 0
-        avail = cols - skip
-        # Rows that skip their first cell are left-aligned to column 2 (the captured
-        # behavior); other rows centre the line within the row.
-        if skip:
-            offset = skip
-        else:
-            offset = (avail - len(line)) // 2
+    if not words:
+        return tiles
+
+    # Try the inset layout first: every usable row is 12 wide. If it fits in <= 4 rows
+    # the puzzle is short enough (length <= 48) to stay inside the inset board.
+    lines = _wrap(words, [_INSET_WIDTH] * len(ranges))
+    if lines is not None:
+        expanded = False
+        length = sum(len(line) for line in lines)
+        start = 1 if length <= 24 else 0      # row 2 for 1-24, row 1 for 25+
+    else:
+        # The puzzle needs more room than the inset board: let rows 2 and 3 use their
+        # full 14 cells. Expansion is only legitimate once the length exceeds 48.
+        expanded = True
+        lines = _wrap(words, list(BOARD_ROWS))
+        if lines is None:
+            raise GameError(
+                "puzzle does not fit the board: a word is too wide or it needs more "
+                "than four rows"
+            )
+        length = sum(len(line) for line in lines)
+        if length <= _INSET_CAPACITY:
+            raise GameError(
+                f"puzzle does not fit the board: a word needs more than {_INSET_WIDTH} "
+                f"tiles but the puzzle is only {length} tiles long"
+            )
+        start = 0
+
+    if start + len(lines) > len(ranges):
+        raise GameError(
+            f"puzzle does not fit the board: needs {len(lines)} rows starting at "
+            f"row {start + 1}"
+        )
+
+    for k, line in enumerate(lines):
+        row_idx = start + k
+        row_start, _cols = ranges[row_idx]
+        # Inset rows 2 and 3 (indices 1, 2) keep their first cell blank; otherwise the
+        # line starts at the row's first tile. Every row is left-aligned.
+        skip = 1 if (row_idx in (1, 2) and not expanded) else 0
         for j, ch in enumerate(line):
-            tiles[start + offset + j] = ch
+            tiles[row_start + skip + j] = ch
     return tiles
 
 
@@ -197,6 +235,44 @@ def _set_shape_text(xml: str, shape_name: str, text: str) -> str:
     return xml[: m.start(1)] + new_sp + xml[m.end(1):]
 
 
+def _set_shape_fill(xml: str, shape_name: str, hex6: str) -> str:
+    """Set the solid shape fill of one uniquely-named shape within slide XML.
+
+    Locates the ``<p:sp>`` whose ``p:cNvPr`` name is exactly ``shape_name`` and
+    rewrites the colour of its **first** ``<a:solidFill><a:srgbClr .../></a:solidFill>``
+    — the tile's shape fill (it precedes the ``<a:ln>`` line colour). Only that value
+    changes; geometry, line, and text runs are left intact.
+
+    Parameters:
+        xml: the decoded slide XML.
+        shape_name: the target shape's ``cNvPr`` name (an anchor from SLOT_MAPPING).
+        hex6: the 6-hex ``srgbClr`` value to apply (e.g. ``"FFFFFF"``/``"189A50"``).
+    Returns:
+        The slide XML with the shape's fill colour replaced.
+    Raises:
+        GameError: no shape with ``shape_name`` exists, or it has no solid fill to set
+            (a missing/renamed anchor — fail loudly, never miscolour text).
+    """
+    sp_pattern = re.compile(
+        r'(<p:sp>(?:(?!</p:sp>).)*?name="' + re.escape(shape_name) + r'".*?</p:sp>)',
+        re.S,
+    )
+    m = sp_pattern.search(xml)
+    if not m:
+        raise GameError(f"puzzle slot anchor not found in template: {shape_name}")
+    sp = m.group(1)
+
+    new_sp, count = re.subn(
+        r'(<a:solidFill><a:srgbClr val=")[0-9A-Fa-f]{6}("\s*/></a:solidFill>)',
+        lambda mm: mm.group(1) + hex6 + mm.group(2),
+        sp,
+        count=1,
+    )
+    if count == 0:
+        raise GameError(f"slot anchor {shape_name} has no shape fill to set")
+    return xml[: m.start(1)] + new_sp + xml[m.end(1):]
+
+
 def inject_puzzles(template_path, out_path, slot_assignments) -> None:
     """Write a game package with the assigned puzzles injected into their slots.
 
@@ -234,6 +310,9 @@ def inject_puzzles(template_path, out_path, slot_assignments) -> None:
             tiles = lay_out_board(puzzle.solution)
             for shape_name, ch in zip(mapping["tiles"], tiles):
                 xml = _set_shape_text(xml, shape_name, ch)
+                # Colour every tile: white where a character lands, green otherwise
+                # (clearing any stale white tiles from the template's sample puzzle).
+                xml = _set_shape_fill(xml, shape_name, TILE_WHITE if ch else TILE_GREEN)
             xml = _set_shape_text(xml, mapping["category"], puzzle.category)
         replacements[slide] = xml.encode("utf-8")
 
