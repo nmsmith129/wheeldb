@@ -13,6 +13,9 @@ html_cache/
 /compendium*.html
 /compendium*_files/
 
+# Generated game files (wheeldb game -> games/wof[N].pptm)
+/games/
+
 # Python
 __pycache__/
 *.py[cod]

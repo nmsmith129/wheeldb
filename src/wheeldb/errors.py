@@ -31,6 +31,19 @@ class DatabaseError(WheelDBError):
     """
 
 
+class GameError(WheelDBError):
+    """A playable game file could not be generated.
+
+    Raised by game generation (``gamegen``) and package injection
+    (``pptx_inject``) for the feature-006 failure modes: the season is absent or
+    holds too few puzzles of a type, no ``wof[N].pptm`` number is available, the
+    template is missing/unreadable, or a puzzle slot's anchor cannot be located.
+    A direct ``WheelDBError`` subclass so the CLI maps it to a clear, spoiler-free
+    stderr message and exit 2 (FR-010/FR-014). Messages name only types, counts,
+    seasons, and paths — never a solution or category (Decision 6/7).
+    """
+
+
 class PuzzleParseError(WheelDBError):
     """A puzzle's round code is not recognized, so a derived value cannot be computed.
 
